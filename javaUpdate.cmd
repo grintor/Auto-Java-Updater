@@ -46,6 +46,11 @@ ping -n 1 google.com > nul || goto error
 FOR /F "tokens=2 delims=<	> " %%n IN ('curl.exe -s -L http://javadl-esd.sun.com/update/1.8.0/map-m-1.8.0.xml ^| find /i "https:"') DO set URL1=%%n
 FOR /F "tokens=2 delims=<	> " %%n IN ('curl.exe -s -L -k %URL1% ^| find /i "<version>"') DO set RemoteJavaVersionFull=%%n
 set RemoteJavaVersion=%RemoteJavaVersionFull:~0,8%
+set RemoteJavaUrl=%RemoteJavaVersionFull:~6%
+set RemoteJavaExe=%RemoteJavaVersionFull:~6,2%
+REM Examle
+REM https://edelivery.oracle.com/otn-pub/java/jdk/8u60-b27/jre-8u60-windows-x64.exe
+REM https://edelivery.oracle.com/otn-pub/java/jdk/8u%RemoteJavaVersionFull:~6%/jre-8u%RemoteJavaVersionFull:~6,2%-windows-x64.exe
 echo The latest version of java is %RemoteJavaVersion%.
 
 
@@ -53,7 +58,11 @@ echo The latest version of java is %RemoteJavaVersion%.
 
 ::----------- Find the local Java version-----------------------------------
 set LocalJavaVersion=None
-FOR /F "tokens=1-15" %%n IN ('reg query HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall /s ^& reg query HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall /s 2^> nul') DO (
+REM FOR /F "tokens=1-15" %%n IN ('reg query HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall /s ^& reg query HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall /s 2^> nul') DO (
+FOR /F "tokens=1-15" %%n IN ('reg query HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall /s 2^> nul') DO (
+REM x64
+REM FOR /F "tokens=1-15" %%n IN ('reg query HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall /s 2^> nul') DO (
+
 
    if '%%n'=='InstallSource' (
      set p=%%p%%q%%r%%s%%t%%u%%v%%w%%x%%y%%z
@@ -69,14 +78,37 @@ FOR /F "tokens=1-15" %%n IN ('reg query HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Wi
    )
 )
 
-if '%LocalJavaVersion%'=='None' echo There is no local version of Java. & goto install
-if '%LocalJavaVersion%'=='Multi' echo There are multiple local versions of Java installed. & goto uninstall
-echo The local version of Java is %LocalJavaVersion%.
+set LocalJavax64Version=None
+REM FOR /F "tokens=1-15" %%n IN ('reg query HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall /s ^& reg query HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall /s 2^> nul') DO (
+FOR /F "tokens=1-15" %%n IN ('reg query HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall /s 2^> nul') DO (
 
+
+   if '%%n'=='InstallSource' (
+     set p=%%p%%q%%r%%s%%t%%u%%v%%w%%x%%y%%z
+     set p=!p: =\!
+     set p=!p:\= !
+     for %%n in (!p!) do set c=%%n
+   )
+
+   if '%%n'=='DisplayName' (
+      set p=%%p
+      if "!p:~0,4!"=="Java" if not "%%q"=="Auto" if not '!LocalJavax64Version!'=='None' (set LocalJavax64Version=Multi) ELSE (set LocalJavax64Version=!c:~3!)
+      if "!p:~0,4!"=="J2SE" if not '!LocalJavax64Version!'=='None' (set LocalJavax64Version=Multi) ELSE (set LocalJavax64Version=!c:~3!)
+   )
+)
+if '%LocalJavaVersion%'=='None' echo There is no local version of Java. & goto install
+if '%LocalJavax64Version%'=='None' echo There is no local version of Java. & goto install
+if '%LocalJavaVersion%'=='Multi' echo There are multiple local versions of Java installed. & goto uninstall
+if '%LocalJavax64Version%'=='Multi' echo There are multiple local versions of Java x64 installed. & goto uninstall
+if not '%LocalJavaVersion%'=='%RemoteJavaVersion%' echo There is older local versions of Java installed. & goto uninstall
+if not '%LocalJavax64Version:~0,8%'=='%RemoteJavaVersion%' echo There is older local versions of Java x64 installed. & goto uninstall
+echo The local version of Java is %LocalJavaVersion%.
+echo The local version of Java is %LocalJavax64Version%.
 
 
 ::----------- If they match, skip to the end---------------------------------
 if '%RemoteJavaVersion%'=='%LocalJavaVersion%' (goto finished) ELSE (echo The Local version of Java is out of date.)
+if '%RemoteJavaVersion%'=='%LocalJavax64Version%' (goto finished) ELSE (echo The Local version of Java x64 is out of date.)
 
 
 
@@ -93,8 +125,23 @@ FOR /F "tokens=1-4" %%n IN ('reg query HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Win
 
    if '%%n'=='DisplayName' (
       set d=%%p
-      if "!d:~0,4!"=="Java" if not "%%q"=="Auto" msiexec.exe !c! /qn & ping -n 11 127.0.0.1 > nul
-      if "!d:~0,4!"=="J2SE" msiexec.exe !c! /qn & ping -n 11 127.0.0.1 > nul
+      if "!d:~0,4!"=="Java" if not "%%q"=="Auto" msiexec.exe !c! /qn /norestart & ping -n 11 127.0.0.1 > nul
+      if "!d:~0,4!"=="J2SE" msiexec.exe !c! /qn /norestart & ping -n 11 127.0.0.1 > nul
+   )
+)
+
+if '%LocalJavax64Version%'=='Multi' (echo Uninstalling all local versions of Java...) ELSE (echo Uninstalling the local version of Java...)
+FOR /F "tokens=1-4" %%n IN ('reg query HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall /s ^& reg query HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall /s 2^> nul') DO (
+
+   if '%%n'=='UninstallString' (
+     set c=%%q
+     set c=!c:/I=/X!
+   )
+
+   if '%%n'=='DisplayName' (
+      set d=%%p
+      if "!d:~0,4!"=="Java" if not "%%q"=="Auto" msiexec.exe !c! /qn /norestart & ping -n 11 127.0.0.1 > nul
+      if "!d:~0,4!"=="J2SE" msiexec.exe !c! /qn /norestart & ping -n 11 127.0.0.1 > nul
    )
 )
 
@@ -106,11 +153,29 @@ echo Downloading latest version of Java...
 set url2=http://javadl.sun.com/webapps/download/GetFile/%RemoteJavaVersionFull%/windows-i586/xpiinstall.exe
 curl.exe -s -L -k -o %tmp%\java_inst.exe %url2%
 echo Installing latest version of Java...
-start /wait %tmp%\java_inst.exe /s
+start /wait %tmp%\java_inst.exe /s REBOOT=Suppress
+ping 127.0.0.1 > nul
+del %tmp%\java_inst.exe
+if not exist "%programfiles(x86)%" echo System is 32 bit. & goto regjava
+
+echo Downloading latest version of Java x64...
+set url2=https://edelivery.oracle.com/otn-pub/java/jdk/8u%RemoteJavaVersionFull:~6%/jre-8u%RemoteJavaVersionFull:~6,2%-windows-x64.exe
+curl -s -L -H "Cookie: oraclelicense=accept-securebackup-cookie" -k -o %tmp%\java_inst.exe %url2%
+echo Installing latest version of Java x64...
+start /wait %tmp%\java_inst.exe /s REBOOT=Suppress
 ping 127.0.0.1 > nul
 del %tmp%\java_inst.exe
 
-
+:regjava
+Reg.exe add "HKLM\SOFTWARE\JavaSoft" /v "SPONSORS" /t REG_SZ /d "DISABLE" /f
+Reg.exe add "HKLM\SOFTWARE\JavaSoft\Java Update\Policy" /v "EnableJavaUpdate" /t REG_DWORD /d "0" /f
+Reg.exe add "HKLM\SOFTWARE\JavaSoft\Java Update\Policy" /v "NotifyDownload" /t REG_DWORD /d "0" /f
+Reg.exe add "HKLM\SOFTWARE\JavaSoft\Java Update\Policy" /v "EnableAutoUpdateCheck" /t REG_DWORD /d "0" /f
+if not exist "%programfiles(x86)%" echo System is 32 bit. & goto finished
+Reg.exe add "HKLM\SOFTWARE\Wow6432Node\JavaSoft" /v "SPONSORS" /t REG_SZ /d "DISABLE" /f
+Reg.exe add "HKLM\SOFTWARE\Wow6432Node\JavaSoft\Java Update\Policy" /v "EnableJavaUpdate" /t REG_DWORD /d "0" /f
+Reg.exe add "HKLM\SOFTWARE\Wow6432Node\JavaSoft\Java Update\Policy" /v "NotifyDownload" /t REG_DWORD /d "0" /f
+Reg.exe add "HKLM\SOFTWARE\Wow6432Node\JavaSoft\Java Update\Policy" /v "EnableAutoUpdateCheck" /t REG_DWORD /d "0" /f
 
 ::----------- Up to date ----------------------------------------------------
 :finished
